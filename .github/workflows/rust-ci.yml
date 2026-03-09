@@ -48,6 +48,10 @@ jobs:
         if: matrix.os == 'macos-latest'
         run: |
           brew install cmake gmp openssl@3
+      - name: Set macOS linker search paths
+        if: matrix.os == 'macos-latest'
+        run: |
+          echo "LIBRARY_PATH=$(brew --prefix gmp)/lib:$(brew --prefix openssl@3)/lib" >> "$GITHUB_ENV"
       - name: Install Windows deps
         if: matrix.os == 'windows-latest'
         uses: msys2/setup-msys2@v2
