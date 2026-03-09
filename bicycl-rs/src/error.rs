@@ -1,5 +1,13 @@
 use thiserror::Error;
 
+/// All errors that can be returned by this crate.
+///
+/// The variants fall into three categories:
+/// - **Rust-side conversion errors** (`NulByte`, `Utf8`, `NullFromFfi`): problems
+///   converting data before or after FFI calls.
+/// - **C library status codes** (all other variants): direct mappings of the
+///   `bicycl_status_t` enum returned by the C API.
+/// - **`Unknown`**: a status code not recognised by this version of the crate.
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("null pointer returned from FFI: {0}")]
@@ -75,7 +83,7 @@ pub enum Error {
 pub type Result<T> = core::result::Result<T, Error>;
 
 impl Error {
-    pub fn from_status(status: bicycl_rs_sys::bicycl_status_t) -> Self {
+    pub(crate) fn from_status(status: bicycl_rs_sys::bicycl_status_t) -> Self {
         match status {
             bicycl_rs_sys::bicycl_status_t::BICYCL_OK => Self::Unknown(0),
             bicycl_rs_sys::bicycl_status_t::BICYCL_ERR_NULL_PTR => Self::NullPtr,
