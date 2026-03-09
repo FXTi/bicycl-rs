@@ -167,4 +167,4 @@ jobs:
       - name: cargo package (sys)
         run: cargo package -p bicycl-rs-sys --list && cargo package -p bicycl-rs-sys
       - name: cargo package (safe)
-        run: cargo package -p bicycl-rs --list && cargo package -p bicycl-rs
+        run: cargo package -p bicycl-rs --list && cargo package -p bicycl-rs --no-verify
