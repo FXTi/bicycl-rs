@@ -18,8 +18,8 @@ fn main() -> Result<(), bicycl_rs::Error> {
 
     let mut stmt_rx = ClDlogMessage::new()?;
     let mut proof_rx = ClDlogMessage::new()?;
-    stmt_rx.from_bytes(&mut ctx, &stmt_bytes)?;
-    proof_rx.from_bytes(&mut ctx, &proof_bytes)?;
+    stmt_rx.load_bytes(&mut ctx, &stmt_bytes)?;
+    proof_rx.load_bytes(&mut ctx, &proof_bytes)?;
 
     let mut verifier = ctx.cl_dlog_session(&mut rng, 112)?;
     verifier.import_statement(&mut ctx, &stmt_rx)?;

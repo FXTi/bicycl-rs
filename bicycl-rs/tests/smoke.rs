@@ -143,8 +143,8 @@ fn smoke_safe_api() {
     let proof_bytes = proof.to_bytes(&mut ctx).unwrap();
     let mut stmt_rx = ClDlogMessage::new().unwrap();
     let mut proof_rx = ClDlogMessage::new().unwrap();
-    stmt_rx.from_bytes(&mut ctx, &stmt_bytes).unwrap();
-    proof_rx.from_bytes(&mut ctx, &proof_bytes).unwrap();
+    stmt_rx.load_bytes(&mut ctx, &stmt_bytes).unwrap();
+    proof_rx.load_bytes(&mut ctx, &proof_bytes).unwrap();
     let mut dlog_verifier = ctx.cl_dlog_session(&mut rng, 112).unwrap();
     dlog_verifier.import_statement(&mut ctx, &stmt_rx).unwrap();
     dlog_verifier.import_proof(&mut ctx, &proof_rx).unwrap();
