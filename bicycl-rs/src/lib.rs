@@ -78,7 +78,7 @@ where
     F: FnMut(*mut c_char, *mut usize) -> bicycl_rs_sys::bicycl_status_t,
 {
     let buf = ffi_bytes_from_len(|buf, len| f(buf.cast::<c_char>(), len))?;
-    let cstr = CStr::from_bytes_with_nul(&buf).map_err(|_| Error::InvalidArgument)?;
+    let cstr = CStr::from_bytes_with_nul(&buf).map_err(|_| Error::Internal)?;
     Ok(cstr.to_str()?.to_owned())
 }
 
