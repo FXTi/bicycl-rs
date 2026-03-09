@@ -3,6 +3,10 @@ use bicycl_rs::{
     two_party_ecdsa_run_demo, version, ClDlogMessage, Context,
 };
 
+fn mod_decimal(value: i64, modulus: i64) -> String {
+    value.rem_euclid(modulus).to_string()
+}
+
 #[test]
 fn smoke_safe_api() {
     assert_eq!(abi_version(), bicycl_rs_sys::BICYCL_CAPI_VERSION);
@@ -167,4 +171,128 @@ fn zeroize_works() {
     let mut buf = [10_u8, 20, 30, 40];
     bicycl_rs::zeroize(&mut buf);
     assert_eq!(buf, [0_u8; 4]);
+}
+
+#[test]
+fn repeated_encrypt_decrypt_matches_upstream_test_patterns() {
+    let mut ctx = Context::new().unwrap();
+    let mut rng = ctx.randgen_from_seed_decimal("20250309").unwrap();
+
+    let paillier = ctx.paillier(64).unwrap();
+    let (paillier_sk, paillier_pk) = paillier.keygen(&mut ctx, &mut rng).unwrap();
+    for message in ["0", "1", "2", "17", "42"] {
+        let ct = paillier
+            .encrypt_decimal(&mut ctx, &paillier_pk, &mut rng, message)
+            .unwrap();
+        let clear = paillier
+            .decrypt_decimal(&mut ctx, &paillier_pk, &paillier_sk, &ct)
+            .unwrap();
+        assert_eq!(clear, message);
+    }
+
+    let jl = ctx.joye_libert(64, 8).unwrap();
+    let (jl_sk, jl_pk) = jl.keygen(&mut ctx, &mut rng).unwrap();
+    for message in ["0", "1", "7", "13"] {
+        let ct = jl
+            .encrypt_decimal(&mut ctx, &jl_pk, &mut rng, message)
+            .unwrap();
+        let clear = jl.decrypt_decimal(&mut ctx, &jl_sk, &ct).unwrap();
+        assert_eq!(clear, message);
+    }
+}
+
+#[test]
+fn ecdsa_rejects_wrong_key_and_wrong_message_across_multiple_cases() {
+    let mut ctx = Context::new().unwrap();
+    let mut rng = ctx.randgen_from_seed_decimal("424242").unwrap();
+    let ecdsa = ctx.ecdsa(112).unwrap();
+
+    for message in [
+        b"abc".as_slice(),
+        b"message-2".as_slice(),
+        b"\x00\x01payload".as_slice(),
+    ] {
+        let (sk, pk) = ecdsa.keygen(&mut ctx, &mut rng).unwrap();
+        let (wrong_sk, wrong_pk) = ecdsa.keygen(&mut ctx, &mut rng).unwrap();
+        let sig = ecdsa
+            .sign_message(&mut ctx, &mut rng, &sk, message)
+            .unwrap();
+
+        assert!(ecdsa.verify_message(&mut ctx, &pk, message, &sig).unwrap());
+        assert!(!ecdsa
+            .verify_message(&mut ctx, &wrong_pk, message, &sig)
+            .unwrap());
+
+        let wrong_sig = ecdsa
+            .sign_message(&mut ctx, &mut rng, &wrong_sk, message)
+            .unwrap();
+        assert!(!ecdsa
+            .verify_message(&mut ctx, &pk, message, &wrong_sig)
+            .unwrap());
+
+        let wrong_message = if message == b"abc" {
+            b"abd".as_slice()
+        } else {
+            b"abc".as_slice()
+        };
+        assert!(!ecdsa
+            .verify_message(&mut ctx, &pk, wrong_message, &sig)
+            .unwrap());
+    }
+}
+
+#[test]
+fn cl_ciphertext_ops_match_expected_modular_results() {
+    let mut ctx = Context::new().unwrap();
+    let mut rng = ctx.randgen_from_seed_decimal("777").unwrap();
+
+    let cl_qk = ctx.cl_hsmqk("3", 1, "5").unwrap();
+    let (cl_qk_sk, cl_qk_pk) = cl_qk.keygen(&mut ctx, &mut rng).unwrap();
+    for (a, b, scalar) in [(0_i64, 0_i64, 0_i64), (1, 2, 2), (2, 2, 3), (2, 1, 4)] {
+        let ct_a = cl_qk
+            .encrypt_decimal(&mut ctx, &cl_qk_pk, &mut rng, &a.to_string())
+            .unwrap();
+        let ct_b = cl_qk
+            .encrypt_decimal(&mut ctx, &cl_qk_pk, &mut rng, &b.to_string())
+            .unwrap();
+
+        let ct_sum = cl_qk
+            .add_ciphertexts(&mut ctx, &cl_qk_pk, &mut rng, &ct_a, &ct_b)
+            .unwrap();
+        let sum = cl_qk.decrypt_decimal(&mut ctx, &cl_qk_sk, &ct_sum).unwrap();
+        assert_eq!(sum, mod_decimal(a + b, 3));
+
+        let ct_scal = cl_qk
+            .scal_ciphertext_decimal(&mut ctx, &cl_qk_pk, &mut rng, &ct_a, &scalar.to_string())
+            .unwrap();
+        let scal = cl_qk
+            .decrypt_decimal(&mut ctx, &cl_qk_sk, &ct_scal)
+            .unwrap();
+        assert_eq!(scal, mod_decimal(a * scalar, 3));
+    }
+
+    let cl_2k = ctx.cl_hsm2k("15", 3).unwrap();
+    let (cl_2k_sk, cl_2k_pk) = cl_2k.keygen(&mut ctx, &mut rng).unwrap();
+    for (a, b, scalar) in [(0_i64, 0_i64, 0_i64), (1, 6, 3), (5, 5, 2), (7, 4, 5)] {
+        let ct_a = cl_2k
+            .encrypt_decimal(&mut ctx, &cl_2k_pk, &mut rng, &a.to_string())
+            .unwrap();
+        let ct_b = cl_2k
+            .encrypt_decimal(&mut ctx, &cl_2k_pk, &mut rng, &b.to_string())
+            .unwrap();
+
+        let ct_sum = cl_2k
+            .add_ciphertexts(&mut ctx, &cl_2k_pk, &mut rng, &ct_a, &ct_b)
+            .unwrap();
+        let sum = cl_2k.decrypt_decimal(&mut ctx, &cl_2k_sk, &ct_sum).unwrap();
+        assert_eq!(sum, mod_decimal(a + b, 8));
+
+        let ct_scal = cl_2k
+            .scal_ciphertext_decimal(&mut ctx, &cl_2k_pk, &mut rng, &ct_a, &scalar.to_string())
+            .unwrap();
+        let scal = cl_2k
+            .decrypt_decimal(&mut ctx, &cl_2k_sk, &ct_scal)
+            .unwrap();
+        assert_eq!(scal, mod_decimal(a * scalar, 8));
+    }
 }
