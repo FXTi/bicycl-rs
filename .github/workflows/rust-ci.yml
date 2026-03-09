@@ -25,6 +25,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
+      # Windows is excluded: upstream BICYCL has a MinGW build bug
+      # (size_t vs mp_bitcnt_t mismatch in gmp_extras.inl on LLP64 targets)
       matrix:
         include:
           - os: ubuntu-latest
@@ -32,9 +34,6 @@ jobs:
             run_doc_check: true
           - os: macos-latest
             run_capi_smoke: true
-            run_doc_check: false
-          - os: windows-latest
-            run_capi_smoke: false
             run_doc_check: false
     steps:
       - uses: actions/checkout@v4
@@ -52,23 +51,6 @@ jobs:
         if: matrix.os == 'macos-latest'
         run: |
           echo "LIBRARY_PATH=$(brew --prefix gmp)/lib:$(brew --prefix openssl@3)/lib" >> "$GITHUB_ENV"
-      - name: Install Windows deps
-        if: matrix.os == 'windows-latest'
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          update: true
-          path-type: inherit
-          install: >-
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-cmake
-            mingw-w64-x86_64-make
-            mingw-w64-x86_64-gmp
-            mingw-w64-x86_64-openssl
-      - name: Add Windows GNU target
-        if: matrix.os == 'windows-latest'
-        shell: msys2 {0}
-        run: rustup target add x86_64-pc-windows-gnu
       - name: C API smoke
         if: matrix.run_capi_smoke
         run: |
@@ -76,26 +58,11 @@ jobs:
           cmake --build build/capi
           ctest --test-dir build/capi --output-on-failure
       - name: Rust fmt
-        if: matrix.os != 'windows-latest'
-        run: cargo fmt --check
-      - name: Rust fmt (Windows)
-        if: matrix.os == 'windows-latest'
-        shell: msys2 {0}
         run: cargo fmt --check
       - name: Rust clippy
-        if: matrix.os != 'windows-latest'
         run: cargo clippy --workspace --all-targets -- -D warnings
-      - name: Rust clippy (Windows)
-        if: matrix.os == 'windows-latest'
-        shell: msys2 {0}
-        run: cargo clippy --workspace --all-targets --target x86_64-pc-windows-gnu -- -D warnings
       - name: Rust test
-        if: matrix.os != 'windows-latest'
         run: cargo test --workspace
-      - name: Rust test (Windows)
-        if: matrix.os == 'windows-latest'
-        shell: msys2 {0}
-        run: cargo test --workspace --target x86_64-pc-windows-gnu
       - name: Rust doc
         if: matrix.run_doc_check
         run: RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --workspace
