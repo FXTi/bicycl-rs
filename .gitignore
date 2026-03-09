@@ -1,0 +1,10 @@
+# Build outputs
+build/
+target/
+
+# Rust/Cargo local artifacts
+**/*.rs.bk
+
+# OS/editor noise
+.DS_Store
+Thumbs.db

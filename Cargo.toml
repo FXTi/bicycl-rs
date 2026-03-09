@@ -1,0 +1,14 @@
+[workspace]
+members = [
+  "bicycl-rs-sys",
+  "bicycl-rs",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "GPL-3.0-or-later"
+repository = "https://gite.lirmm.fr/crypto/bicycl.git"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"

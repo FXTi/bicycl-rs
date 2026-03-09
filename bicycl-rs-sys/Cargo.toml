@@ -1,0 +1,41 @@
+[package]
+name = "bicycl-rs-sys"
+version = "0.1.0"
+edition = "2021"
+links = "bicycl_capi"
+license = "GPL-3.0-or-later"
+description = "Low-level Rust FFI bindings for BICYCL C API"
+repository = "https://gite.lirmm.fr/crypto/bicycl.git"
+homepage = "https://crypto.lirmm.net/bicycl"
+documentation = "https://docs.rs/bicycl-rs-sys"
+readme = "README.md"
+keywords = ["ffi", "crypto", "class-group", "bicycl"]
+categories = ["external-ffi-bindings", "cryptography"]
+include = [
+  "Cargo.toml",
+  "README.md",
+  "LICENSE",
+  "build.rs",
+  "src/**",
+  "tests/**",
+  "capi/**",
+  "vendor/bicycl/src/**",
+  "vendor/bicycl/LICENSE",
+  "vendor/bicycl/AUTHORS",
+]
+
+[features]
+default = ["vendored"]
+vendored = []
+system = []
+docsrs = []
+
+[package.metadata.docs.rs]
+features = ["docsrs"]
+no-default-features = true
+
+[build-dependencies]
+cmake = "0.1"
+
+[dev-dependencies]
+serial_test = "3"

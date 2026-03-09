@@ -1,0 +1,29 @@
+[package]
+name = "bicycl-rs"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+description = "Safe Rust wrapper for BICYCL C API"
+repository = "https://gite.lirmm.fr/crypto/bicycl.git"
+homepage = "https://crypto.lirmm.net/bicycl"
+documentation = "https://docs.rs/bicycl-rs"
+readme = "README.md"
+keywords = ["crypto", "class-group", "bicycl"]
+categories = ["cryptography", "api-bindings"]
+
+[features]
+default = ["vendored"]
+vendored = ["bicycl-rs-sys/vendored"]
+system = ["bicycl-rs-sys/system"]
+docsrs = ["bicycl-rs-sys/docsrs"]
+
+[dependencies]
+bicycl-rs-sys = { path = "../bicycl-rs-sys", version = "0.1.0", default-features = false }
+thiserror = "2"
+
+[dev-dependencies]
+serial_test = "3"
+
+[package.metadata.docs.rs]
+features = ["docsrs"]
+no-default-features = true
