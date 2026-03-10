@@ -1431,6 +1431,18 @@ pub mod two_party {
 ///     → sign_round3 → Sign3 → sign_round4 → Sign4
 ///     → sign_finalize → SignDone
 /// ```
+///
+/// Calling a method from the wrong state is a compile-time error:
+///
+/// ```compile_fail
+/// # fn main() -> Result<(), bicycl_rs::Error> {
+/// let ctx = bicycl_rs::Context::new()?;
+/// let mut rng = ctx.randgen_from_seed_decimal("1")?;
+/// let session = ctx.two_party_ecdsa_session(&mut rng, 112)?;
+/// // ERROR: New state has no sign_round1
+/// session.sign_round1(&ctx, &mut rng, b"msg")?;
+/// # Ok(()) }
+/// ```
 pub struct TwoPartyEcdsaSession<S = two_party::New> {
     raw: NonNull<bicycl_rs_sys::bicycl_two_party_ecdsa_session_t>,
     _state: PhantomData<S>,
@@ -1642,6 +1654,18 @@ pub mod cl_dlog {
 /// New → import_statement → StatementImported → import_proof → Ready
 /// ```
 /// In the `Ready` state: `verify_round`.
+///
+/// Calling a method from the wrong state is a compile-time error:
+///
+/// ```compile_fail
+/// # fn main() -> Result<(), bicycl_rs::Error> {
+/// let ctx = bicycl_rs::Context::new()?;
+/// let mut rng = ctx.randgen_from_seed_decimal("1")?;
+/// let session = ctx.cl_dlog_session(&mut rng, 112)?;
+/// // ERROR: New state has no prove_round
+/// session.prove_round(&ctx, &mut rng)?;
+/// # Ok(()) }
+/// ```
 pub struct ClDlogSession<S = cl_dlog::New> {
     raw: NonNull<bicycl_rs_sys::bicycl_cl_dlog_session_t>,
     _state: PhantomData<S>,
@@ -1888,6 +1912,18 @@ pub mod threshold {
 ///     → keygen_finalize → KeygenDone
 ///     → sign_round1 → Sign1 → ... → Sign8
 ///     → sign_finalize → SignDone (signature_valid)
+/// ```
+///
+/// Calling a method from the wrong state is a compile-time error:
+///
+/// ```compile_fail
+/// # fn main() -> Result<(), bicycl_rs::Error> {
+/// let ctx = bicycl_rs::Context::new()?;
+/// let mut rng = ctx.randgen_from_seed_decimal("1")?;
+/// let session = ctx.threshold_ecdsa_session(&mut rng, 112, 2, 1)?;
+/// // ERROR: New state has no sign_round1
+/// session.sign_round1(&ctx, &mut rng, b"msg")?;
+/// # Ok(()) }
 /// ```
 pub struct ThresholdEcdsaSession<S = threshold::New> {
     raw: NonNull<bicycl_rs_sys::bicycl_threshold_ecdsa_session_t>,
