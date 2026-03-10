@@ -7,33 +7,44 @@ on:
     branches: [main]
 
 jobs:
-  vendored:
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --check
+
+  test:
+    needs: fmt
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-latest
-            run_capi_smoke: true
-            run_doc_check: true
-          - os: macos-latest
-            run_capi_smoke: true
-            run_doc_check: false
-          - os: windows-latest
-            run_capi_smoke: false
-            run_doc_check: false
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
+
       - uses: dtolnay/rust-toolchain@stable
         with:
+          components: clippy
           targets: ${{ matrix.os == 'windows-latest' && 'x86_64-pc-windows-gnu' || '' }}
+
+      - name: Install nightly (for sanitizer)
+        if: matrix.os == 'ubuntu-latest'
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
+
       - name: Install deps (Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake libssl-dev libgmp-dev libgmpxx4ldbl
+
       - name: Install deps (macOS)
         if: runner.os == 'macOS'
         run: brew install cmake gmp openssl@3
@@ -42,6 +53,7 @@ jobs:
         run: |
           echo "LIBRARY_PATH=$(brew --prefix gmp)/lib:$(brew --prefix openssl@3)/lib" >> "$GITHUB_ENV"
           echo "BICYCL_DEP_LIB_DIR=$(brew --prefix gmp)/lib:$(brew --prefix openssl@3)/lib" >> "$GITHUB_ENV"
+
       - name: Install deps (Windows)
         if: runner.os == 'Windows'
         uses: msys2/setup-msys2@v2
@@ -54,97 +66,49 @@ jobs:
             mingw-w64-x86_64-make
             mingw-w64-x86_64-gmp
             mingw-w64-x86_64-openssl
-      - name: C API smoke
-        if: matrix.run_capi_smoke
-        run: |
-          cmake -S bicycl-rs-sys/capi -B build/capi -DBUILD_TESTING=ON
-          cmake --build build/capi
-          ctest --test-dir build/capi --output-on-failure
-      - name: Rust fmt
-        if: matrix.os != 'windows-latest'
-        run: cargo fmt --check
-      - name: Rust clippy
-        if: matrix.os != 'windows-latest'
+
+      # ── lint ──
+      - name: Clippy (Unix)
+        if: runner.os != 'Windows'
         run: cargo clippy --workspace --all-targets -- -D warnings
-      - name: Rust test (Unix)
-        if: matrix.os != 'windows-latest'
-        run: cargo test --workspace
-      - name: Rust check (Windows)
-        if: matrix.os == 'windows-latest'
+      - name: Clippy (Windows)
+        if: runner.os == 'Windows'
         shell: msys2 {0}
         run: |
           export PATH="/mingw64/bin:$PATH"
-          cargo check --workspace --target x86_64-pc-windows-gnu
-      - name: Rust doc
-        if: matrix.run_doc_check
-        run: RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --workspace
+          cargo clippy --workspace --all-targets --target x86_64-pc-windows-gnu -- -D warnings
 
-  system-mode:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-          - os: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: true
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Install deps (Linux)
-        if: runner.os == 'Linux'
+      # ── test ──
+      - name: Test (Unix)
+        if: runner.os != 'Windows'
+        run: cargo test --workspace
+      - name: Test (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
         run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake libssl-dev libgmp-dev libgmpxx4ldbl
-      - name: Install deps (macOS)
-        if: runner.os == 'macOS'
-        run: brew install cmake gmp openssl@3
-      - name: Set macOS library paths
-        if: runner.os == 'macOS'
-        run: |
-          echo "LIBRARY_PATH=$(brew --prefix gmp)/lib:$(brew --prefix openssl@3)/lib" >> "$GITHUB_ENV"
-          echo "BICYCL_DEP_LIB_DIR=$(brew --prefix gmp)/lib:$(brew --prefix openssl@3)/lib" >> "$GITHUB_ENV"
-      - name: Rust test (system mode from local libs)
+          export PATH="/mingw64/bin:$PATH"
+          cargo test --workspace --target x86_64-pc-windows-gnu
+
+      # ── ubuntu extras ──
+      - name: Test (sanitizer)
+        if: matrix.os == 'ubuntu-latest'
+        env:
+          RUSTFLAGS: -Zsanitizer=address
+          ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
+          CFLAGS: -fsanitize=address -fno-omit-frame-pointer
+          CXXFLAGS: -fsanitize=address -fno-omit-frame-pointer
+        run: cargo +nightly test --workspace --target x86_64-unknown-linux-gnu
+
+      - name: Test (system mode)
+        if: matrix.os == 'ubuntu-latest'
         run: bash scripts/test-system-from-vendored.sh
 
-  sanitize:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: true
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Install deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake libssl-dev libgmp-dev libgmpxx4ldbl
-      - name: C API smoke with ASan/UBSan
-        env:
-          # detect_leaks=0: known leak in upstream BICYCL (TwoPartyECDSA::Player1 EC_POINT)
-          ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
-          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
-        run: |
-          cmake -S bicycl-rs-sys/capi -B build/capi-sanitize -DBUILD_TESTING=ON \
-            -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
-            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
-            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
-          cmake --build build/capi-sanitize
-          ctest --test-dir build/capi-sanitize --output-on-failure
+      - name: Doc
+        if: matrix.os == 'ubuntu-latest'
+        run: RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --workspace
 
-  package-check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: true
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Install deps
+      - name: Package check
+        if: matrix.os == 'ubuntu-latest'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake libssl-dev libgmp-dev libgmpxx4ldbl
-      - name: cargo package (sys)
-        run: cargo package -p bicycl-rs-sys --list && cargo package -p bicycl-rs-sys
-      - name: cargo package (safe)
-        # full package impossible until bicycl-rs-sys is on crates.io; list-only verifies included files
-        run: cargo package -p bicycl-rs --list
+          cargo package -p bicycl-rs-sys --list && cargo package -p bicycl-rs-sys
+          cargo package -p bicycl-rs --list
