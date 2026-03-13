@@ -1,17 +1,27 @@
 # bicycl-rs
 
-Rust bindings for [upstream BICYCL](https://gite.lirmm.fr/crypto/bicycl).
+Rust bindings for [upstream BICYCL](https://github.com/Jiangjiang-jiang/bicycl).
 
-- `bicycl-rs-sys`: low-level FFI bindings to the BICYCL C API
-- `bicycl-rs`: safe Rust wrapper built on top of `bicycl-rs-sys`
+This workspace contains two crates:
 
-## Build
+- bicycl-rs-sys: low-level FFI bindings to the BICYCL C API
+- bicycl-rs: safe Rust wrapper built on top of bicycl-rs-sys
+
+## Building
 
 ```bash
 cargo test --workspace
 ```
 
-Upstream BICYCL sources are tracked as a git submodule in `bicycl-rs-sys/vendor/bicycl/`. To update: `git submodule update --remote bicycl-rs-sys/vendor/bicycl`.
+Requires CMake >= 3.16, GMP development headers, and OpenSSL development
+headers. The upstream BICYCL C++ sources are vendored in
+`bicycl-rs-sys/vendor/bicycl/` as a git submodule.
+
+To update the vendored BICYCL sources:
+
+```bash
+git submodule update --remote bicycl-rs-sys/vendor/bicycl
+```
 
 ## Platform Support
 

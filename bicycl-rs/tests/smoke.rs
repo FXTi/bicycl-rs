@@ -309,7 +309,7 @@ fn classgroup_nudupl_of_identity_is_identity() {
 
 #[test]
 fn context_clear_error_resets_last_error() {
-    let ctx = Context::new().unwrap();
+    let mut ctx = Context::new().unwrap();
     assert_eq!(ctx.last_error(), "");
     ctx.clear_error();
     assert_eq!(ctx.last_error(), "");

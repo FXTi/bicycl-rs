@@ -170,7 +170,7 @@ impl Context {
     }
 
     /// Clears the last error message stored in the context.
-    pub fn clear_error(&self) {
+    pub fn clear_error(&mut self) {
         unsafe { bicycl_rs_sys::bicycl_context_clear_error(self.raw.as_ptr()) }
     }
 
