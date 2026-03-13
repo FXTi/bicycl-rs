@@ -1,5 +1,44 @@
 use bicycl_rs::{abi_version, version, ClDlogMessage, Context};
 
+// ── helpers ──────────────────────────────────────────────────────────────────
+
+/// Run a full threshold-ECDSA keygen+sign protocol for the given (n, t)
+/// at 112-bit security and return whether the final signature is valid.
+fn run_threshold_ecdsa(n: u32, t: u32, msg: &[u8]) -> bool {
+    let ctx = Context::new().unwrap();
+    let mut rng = ctx
+        .randgen_from_seed_decimal(&format!("{}{}", n * 100 + t, 777))
+        .unwrap();
+    let s = ctx
+        .threshold_ecdsa_session(&mut rng, 112, n, t)
+        .unwrap()
+        .keygen_round1(&ctx, &mut rng)
+        .unwrap()
+        .keygen_round2(&ctx, &mut rng)
+        .unwrap()
+        .keygen_finalize(&ctx)
+        .unwrap()
+        .sign_round1(&ctx, &mut rng, msg)
+        .unwrap()
+        .sign_round2(&ctx, &mut rng)
+        .unwrap()
+        .sign_round3(&ctx)
+        .unwrap()
+        .sign_round4(&ctx)
+        .unwrap()
+        .sign_round5(&ctx, &mut rng)
+        .unwrap()
+        .sign_round6(&ctx, &mut rng)
+        .unwrap()
+        .sign_round7(&ctx, &mut rng)
+        .unwrap()
+        .sign_round8(&ctx)
+        .unwrap()
+        .sign_finalize(&ctx)
+        .unwrap();
+    s.signature_valid(&ctx).unwrap()
+}
+
 fn mod_decimal(value: i64, modulus: i64) -> String {
     value.rem_euclid(modulus).to_string()
 }
@@ -357,4 +396,193 @@ fn debug_impls_do_not_panic() {
 
     let th = ctx.threshold_ecdsa_session(&mut rng, 112, 2, 1).unwrap();
     let _ = format!("{th:?}");
+}
+
+// ── CL_HSMqk k=2 ─────────────────────────────────────────────────────────────
+
+/// Upstream test_CL_HSMqk.cpp tests k=1 and k=2.  Here we verify that the
+/// Rust wrapper correctly handles k=2, where the plaintext space is Z/q^k.
+///
+/// Parameters: q=19, k=2, p=193.  These satisfy the required constraints:
+///   - q and p are prime
+///   - Kronecker(q, p) = -1  (193 ≡ 3 mod 19, which is a QNR mod 19)
+///   - -q*p ≡ 1 (mod 4)  (-19*193 mod 4 = 1 ✓)
+///   - p > 4*q (193 > 76)
+///
+/// Note: the upstream "small" test uses 5-bit random q with DeltaK ≥ 150 bits
+/// (i.e. a ~147-bit p).  Here q=19 (5-bit) with p=193 gives DeltaK of only
+/// 12 bits — intentionally minimal for a fast wrapper correctness test,
+/// consistent with the N=15 convention used elsewhere in this suite.
+/// The dlog_in_F algorithm is algebraic and correct regardless of discriminant
+/// size; security properties require a much larger discriminant in practice.
+#[test]
+fn cl_hsmqk_k2_plaintext_space_and_homomorphism() {
+    let ctx = Context::new().unwrap();
+    let mut rng = ctx.randgen_from_seed_decimal("20241").unwrap();
+
+    // Plaintext space: Z/19^2 = Z/361
+    let q = 19_i64;
+    let k = 2_u32;
+    let modulus = q.pow(k); // 361
+    let cl = ctx.cl_hsmqk(&q.to_string(), k, "193").unwrap();
+    let (sk, pk) = cl.keygen(&ctx, &mut rng).unwrap();
+
+    // Round-trip for boundary and interior values
+    for m in ["0", "1", "18", "19", "360"] {
+        let ct = cl.encrypt_decimal(&ctx, &pk, &mut rng, m).unwrap();
+        assert_eq!(
+            cl.decrypt_decimal(&ctx, &sk, &ct).unwrap(),
+            m,
+            "k=2 roundtrip failed for m={m}"
+        );
+    }
+
+    // Homomorphic add: (19 + 18) mod 361 = 37
+    let ct19 = cl.encrypt_decimal(&ctx, &pk, &mut rng, "19").unwrap();
+    let ct18 = cl.encrypt_decimal(&ctx, &pk, &mut rng, "18").unwrap();
+    let sum = cl.add_ciphertexts(&ctx, &pk, &mut rng, &ct19, &ct18).unwrap();
+    let expected_sum = (19_i64 + 18).rem_euclid(modulus).to_string();
+    assert_eq!(cl.decrypt_decimal(&ctx, &sk, &sum).unwrap(), expected_sum);
+
+    // Homomorphic scalar mult: 19 * 3 mod 361 = 57
+    let scaled = cl
+        .scal_ciphertext_decimal(&ctx, &pk, &mut rng, &ct19, "3")
+        .unwrap();
+    let expected_scaled = (19_i64 * 3).rem_euclid(modulus).to_string();
+    assert_eq!(
+        cl.decrypt_decimal(&ctx, &sk, &scaled).unwrap(),
+        expected_scaled
+    );
+
+    // addscal: Enc(19) + Enc(18)*2 = (19 + 36) mod 361 = 55
+    let addscal = cl
+        .addscal_ciphertexts_decimal(&ctx, &pk, &mut rng, &ct19, &ct18, "2")
+        .unwrap();
+    let expected_addscal = (19_i64 + 18 * 2).rem_euclid(modulus).to_string();
+    assert_eq!(
+        cl.decrypt_decimal(&ctx, &sk, &addscal).unwrap(),
+        expected_addscal
+    );
+}
+
+// ── CL_HSM2k k=8 ─────────────────────────────────────────────────────────────
+
+/// Upstream test_CL_HSM2k.cpp tests k=64 (standard path), k=128 and k=1100
+/// (large_message_variant path, triggered when 2^(2k) > |DeltaK|).
+/// With N=15 (DeltaK=-120) and k=8: 2^16=65536 >> 120, so this test
+/// exercises the large_message_variant path — the same branch covered by the
+/// upstream's k=128/k=1100 cases — while keeping key generation fast.
+#[test]
+fn cl_hsm2k_k8_boundary_values_and_wrap_around() {
+    let ctx = Context::new().unwrap();
+    let mut rng = ctx.randgen_from_seed_decimal("20248").unwrap();
+
+    // Plaintext space: Z/2^8 = Z/256
+    let cl2 = ctx.cl_hsm2k("15", 8).unwrap();
+    let (sk, pk) = cl2.keygen(&ctx, &mut rng).unwrap();
+
+    // Boundary values
+    for m in ["0", "1", "127", "255"] {
+        let ct = cl2.encrypt_decimal(&ctx, &pk, &mut rng, m).unwrap();
+        assert_eq!(
+            cl2.decrypt_decimal(&ctx, &sk, &ct).unwrap(),
+            m,
+            "k=8 roundtrip failed for m={m}"
+        );
+    }
+
+    // Wrap-around add: (200 + 100) mod 256 = 44
+    let ct200 = cl2.encrypt_decimal(&ctx, &pk, &mut rng, "200").unwrap();
+    let ct100 = cl2.encrypt_decimal(&ctx, &pk, &mut rng, "100").unwrap();
+    let sum = cl2
+        .add_ciphertexts(&ctx, &pk, &mut rng, &ct200, &ct100)
+        .unwrap();
+    assert_eq!(cl2.decrypt_decimal(&ctx, &sk, &sum).unwrap(), "44");
+
+    // Scalar: 100 * 3 mod 256 = 44
+    let scaled = cl2
+        .scal_ciphertext_decimal(&ctx, &pk, &mut rng, &ct100, "3")
+        .unwrap();
+    assert_eq!(cl2.decrypt_decimal(&ctx, &sk, &scaled).unwrap(), "44");
+
+    // addscal: Enc(200) + Enc(100)*2 = (200 + 200) mod 256 = 144
+    let addscal = cl2
+        .addscal_ciphertexts_decimal(&ctx, &pk, &mut rng, &ct200, &ct100, "2")
+        .unwrap();
+    assert_eq!(cl2.decrypt_decimal(&ctx, &sk, &addscal).unwrap(), "144");
+}
+
+// ── ECDSA 128-bit ─────────────────────────────────────────────────────────────
+
+/// Upstream test_ec.cpp tests security levels 112, 128, 192, 256.
+/// The Rust suite previously only covered 112; this adds 128-bit.
+#[test]
+fn ecdsa_128bit_security_level() {
+    let ctx = Context::new().unwrap();
+    let mut rng = ctx.randgen_from_seed_decimal("20128").unwrap();
+
+    let ecdsa = ctx.ecdsa(128).unwrap();
+    let (sk, pk) = ecdsa.keygen(&ctx, &mut rng).unwrap();
+
+    for msg in [b"hello".as_slice(), b"bicycl-rs", b"\x00\x01\x02\x03"] {
+        let sig = ecdsa.sign_message(&ctx, &mut rng, &sk, msg).unwrap();
+        assert!(
+            ecdsa.verify_message(&ctx, &pk, msg, &sig).unwrap(),
+            "128-bit ECDSA should verify its own signature"
+        );
+        assert!(
+            !ecdsa.verify_message(&ctx, &pk, b"tampered", &sig).unwrap(),
+            "128-bit ECDSA should reject a modified message"
+        );
+    }
+
+    // r and s components should be non-empty decimal digits
+    let sig = ecdsa.sign_message(&ctx, &mut rng, &sk, b"test").unwrap();
+    let r = sig.r_decimal(&ctx).unwrap();
+    let s = sig.s_decimal(&ctx).unwrap();
+    assert!(r.chars().all(|c| c.is_ascii_digit()) && !r.is_empty());
+    assert!(s.chars().all(|c| c.is_ascii_digit()) && !s.is_empty());
+}
+
+// ── Joye-Libert larger k ──────────────────────────────────────────────────────
+
+/// Upstream test_Joye_Libert.cpp tests k=32 (small: N_nbits=200) and k=64
+/// (security levels 112–192).  Here we use k=16 with modulus_bits=64, following
+/// the convention of this test suite (small N).  k=32 at modulus_bits=64 hits
+/// the k = modulus_bits/2 boundary and is prohibitively slow; the upstream's
+/// k=32 test pairs it with a 200-bit N which avoids that degenerate case.
+/// k=16 exercises a distinct plaintext space ([0, 2^16)) from the existing
+/// k=8 tests, covering boundary values including sub-byte and multi-byte edges.
+#[test]
+fn joye_libert_k16_plaintext_space() {
+    let ctx = Context::new().unwrap();
+    let mut rng = ctx.randgen_from_seed_decimal("20116").unwrap();
+
+    // k=16: plaintext space [0, 2^16) = [0, 65536)
+    let jl = ctx.joye_libert(64, 16).unwrap();
+    let (sk, pk) = jl.keygen(&ctx, &mut rng).unwrap();
+
+    for m in ["0", "1", "255", "256", "32767", "65535"] {
+        let ct = jl.encrypt_decimal(&ctx, &pk, &mut rng, m).unwrap();
+        assert_eq!(
+            jl.decrypt_decimal(&ctx, &sk, &ct).unwrap(),
+            m,
+            "JL k=16 roundtrip failed for m={m}"
+        );
+    }
+}
+
+// ── Threshold ECDSA additional configurations ─────────────────────────────────
+
+/// Upstream test_CL_threshold.cpp covers (n,t) pairs including (5,2), (7,4),
+/// (10,9).  We test a selection of additional configurations to ensure the
+/// typestate API handles different player counts correctly.
+#[test]
+fn threshold_ecdsa_additional_configurations() {
+    for (n, t) in [(4u32, 2u32), (5, 3)] {
+        assert!(
+            run_threshold_ecdsa(n, t, b"threshold test"),
+            "threshold ({n},{t}) should produce a valid signature"
+        );
+    }
 }
