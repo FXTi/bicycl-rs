@@ -440,7 +440,9 @@ fn cl_hsmqk_k2_plaintext_space_and_homomorphism() {
     // Homomorphic add: (19 + 18) mod 361 = 37
     let ct19 = cl.encrypt_decimal(&ctx, &pk, &mut rng, "19").unwrap();
     let ct18 = cl.encrypt_decimal(&ctx, &pk, &mut rng, "18").unwrap();
-    let sum = cl.add_ciphertexts(&ctx, &pk, &mut rng, &ct19, &ct18).unwrap();
+    let sum = cl
+        .add_ciphertexts(&ctx, &pk, &mut rng, &ct19, &ct18)
+        .unwrap();
     let expected_sum = (19_i64 + 18).rem_euclid(modulus).to_string();
     assert_eq!(cl.decrypt_decimal(&ctx, &sk, &sum).unwrap(), expected_sum);
 
